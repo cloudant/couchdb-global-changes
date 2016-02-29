@@ -151,6 +151,6 @@ delete_admin(User) ->
 
 get_host() ->
     Addr = config:get("httpd", "bind_address", "127.0.0.1"),
-    Port = integer_to_list(mochiweb_socket_server:get(chttpd, port)),
+    Port = couch_httpd:port(clustered_http),
     Host = "http://" ++ Addr ++ ":" ++ Port,
     Host.
