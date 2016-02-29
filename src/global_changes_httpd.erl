@@ -30,7 +30,7 @@
 
 handle_global_changes_req(#httpd{method='GET'}=Req) ->
     Db = global_changes_util:get_dbname(),
-    Feed = chttpd:qs_value(Req, "feed", "normal"),
+    Feed = couch_httpd:qs_value(Req, "feed", "normal"),
     Options = parse_global_changes_query(Req),
     Heartbeat = case lists:keyfind(heartbeat, 1, Options) of
         {heartbeat, true} -> 60000;
@@ -53,8 +53,8 @@ handle_global_changes_req(#httpd{method='GET'}=Req) ->
     case Feed of
         "normal" ->
             {ok, Info} = fabric:get_db_info(Db),
-            Etag = chttpd:make_etag(Info),
-            chttpd:etag_respond(Req, Etag, fun() ->
+            Etag = couch_httpd:make_etag(Info),
+            couch_httpd:etag_respond(Req, Etag, fun() ->
                 fabric:changes(Db, fun changes_callback/2, Acc#acc{etag=Etag}, Options1)
             end);
         Feed when Feed =:= "continuous"; Feed =:= "longpoll" ->
@@ -64,7 +64,7 @@ handle_global_changes_req(#httpd{method='GET'}=Req) ->
             throw({bad_request, Msg})
     end;
 handle_global_changes_req(Req) ->
-    chttpd:send_method_not_allowed(Req, "GET").
+    couch_httpd:send_method_not_allowed(Req, "GET").
 
 transform_change(Username, Change) ->
     global_changes_plugin:transform_change(Username, Change,
@@ -102,7 +102,7 @@ changes_callback({change, _}, #acc{limit=0}=Acc) ->
 % callbacks for continuous feed (newline-delimited JSON Objects)
 changes_callback(start, #acc{feed="continuous"}=Acc) ->
     #acc{resp=Req} = Acc,
-    {ok, Resp} = chttpd:start_delayed_json_response(Req, 200),
+    {ok, Resp} = couch_httpd:start_delayed_json_response(Req, 200),
     {ok, Acc#acc{resp=Resp, last_data_sent_time=os:timestamp()}};
 changes_callback({change, Change0}, #acc{feed="continuous"}=Acc) ->
     #acc{resp=Resp, username=Username} = Acc,
@@ -111,7 +111,7 @@ changes_callback({change, Change0}, #acc{feed="continuous"}=Acc) ->
             {ok, maybe_send_heartbeat(Acc)};
         Change ->
             Line = [?JSON_ENCODE(Change) | "\n"],
-            {ok, Resp1} = chttpd:send_delayed_chunk(Resp, Line),
+            {ok, Resp1} = couch_httpd:send_delayed_chunk(Resp, Line),
             Acc1 = Acc#acc{
                 resp=Resp1,
                 last_data_sent_time=os:timestamp()
@@ -123,22 +123,22 @@ changes_callback({stop, EndSeq}, #acc{feed="continuous"}=Acc) ->
     changes_callback({stop, EndSeq, null}, Acc);
 changes_callback({stop, EndSeq, _Pending}, #acc{feed="continuous"}=Acc) ->
     #acc{resp=Resp} = Acc,
-    {ok, Resp1} = chttpd:send_delayed_chunk(Resp,
+    {ok, Resp1} = couch_httpd:send_delayed_chunk(Resp,
         [?JSON_ENCODE({[{<<"last_seq">>, EndSeq}]}) | "\n"]),
-    chttpd:end_delayed_json_response(Resp1);
+    couch_httpd:end_delayed_json_response(Resp1);
 
 % callbacks for longpoll and normal (single JSON Object)
 changes_callback(start, #acc{feed="normal", etag=Etag}=Acc)
         when Etag =/= undefined ->
     #acc{resp=Req} = Acc,
     FirstChunk = "{\"results\":[\n",
-    {ok, Resp} = chttpd:start_delayed_json_response(Req, 200,
+    {ok, Resp} = couch_httpd:start_delayed_json_response(Req, 200,
        [{"Etag",Etag}], FirstChunk),
     {ok, Acc#acc{resp=Resp, prepend="", last_data_sent_time=os:timestamp()}};
 changes_callback(start, Acc) ->
     #acc{resp=Req} = Acc,
     FirstChunk = "{\"results\":[\n",
-    {ok, Resp} = chttpd:start_delayed_json_response(Req, 200, [], FirstChunk),
+    {ok, Resp} = couch_httpd:start_delayed_json_response(Req, 200, [], FirstChunk),
     {ok, Acc#acc{
         resp=Resp,
         prepend="",
@@ -152,7 +152,7 @@ changes_callback({change, Change0}, Acc) ->
         Change ->
             #acc{resp=Resp, prepend=Prepend} = Acc,
             Line = [Prepend, ?JSON_ENCODE(Change)],
-            {ok, Resp1} = chttpd:send_delayed_chunk(Resp, Line),
+            {ok, Resp1} = couch_httpd:send_delayed_chunk(Resp, Line),
             Acc1 = Acc#acc{
                 prepend=",\r\n",
                 resp=Resp1,
@@ -165,22 +165,22 @@ changes_callback({stop, EndSeq}, Acc) ->
     changes_callback({stop, EndSeq, null}, Acc);
 changes_callback({stop, EndSeq, _Pending}, Acc) ->
     #acc{resp=Resp} = Acc,
-    {ok, Resp1} = chttpd:send_delayed_chunk(Resp,
+    {ok, Resp1} = couch_httpd:send_delayed_chunk(Resp,
         ["\n],\n\"last_seq\":", ?JSON_ENCODE(EndSeq), "}\n"]),
-    chttpd:end_delayed_json_response(Resp1);
+    couch_httpd:end_delayed_json_response(Resp1);
 
 changes_callback(timeout, Acc) ->
     {ok, maybe_send_heartbeat(Acc)};
 
 changes_callback({error, Reason}, #acc{resp=Req=#httpd{}}) ->
-    chttpd:send_error(Req, Reason);
+    couch_httpd:send_error(Req, Reason);
 changes_callback({error, Reason}, Acc) ->
     #acc{etag=Etag, feed=Feed, resp=Resp} = Acc,
     case {Feed, Etag} of
         {"normal", Etag} when Etag =/= undefined ->
-            chttpd:send_error(Resp, Reason);
+            couch_httpd:send_error(Resp, Reason);
         _ ->
-            chttpd:send_delayed_error(Resp, Reason)
+            couch_httpd:send_delayed_error(Resp, Reason)
     end.
 
 
@@ -202,7 +202,7 @@ maybe_send_heartbeat(Acc) ->
     Now = os:timestamp(),
     case timer:now_diff(Now, LastSentTime) div 1000 > Interval of
         true ->
-            {ok, Resp1} = chttpd:send_delayed_chunk(Resp, "\n"),
+            {ok, Resp1} = couch_httpd:send_delayed_chunk(Resp, "\n"),
             Acc#acc{last_data_sent_time=Now, resp=Resp1};
         false ->
             Acc
@@ -231,7 +231,7 @@ parse_global_changes_query(Req) ->
         _Else -> % unknown key value pair, ignore.
             Args
         end
-    end, [], chttpd:qs(Req)).
+    end, [], couch_httpd:qs(Req)).
 
 
 to_non_neg_int(Value) ->
@@ -247,7 +247,7 @@ to_non_neg_int(Value) ->
 allowed_owner(Req) ->
     case config:get("global_changes", "allowed_owner", undefined) of
     undefined ->
-        chttpd:verify_is_server_admin(Req),
+        couch_httpd:verify_is_server_admin(Req),
         admin;
     SpecStr ->
         {ok, {M, F, A}} = couch_util:parse_term(SpecStr),
