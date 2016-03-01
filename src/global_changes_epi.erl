@@ -29,7 +29,7 @@ app() ->
 
 providers() ->
     [
-        {chttpd_handlers, global_changes_httpd_handlers}
+        {http_clustered_handlers, global_changes_httpd_handlers}
     ].
 
 
